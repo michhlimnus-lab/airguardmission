@@ -35,7 +35,7 @@
 
     <script type="text/babel" data-type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, collection, addDoc, onSnapshot, doc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
         const { useState, useEffect, useRef } = React;
@@ -67,6 +67,7 @@
 
         const isLiveMode = !!firebaseConfig.apiKey;
         let app, auth, db;
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
 
         if (isLiveMode) {
             app = initializeApp(firebaseConfig);
@@ -84,22 +85,35 @@
                 mod1: false, mod2: false, mod3: false, mod4: false,
             });
 
-            // Authenticate silently
+            // Authenticate silently using strictly compliant token logic with fallback
             useEffect(() => {
                 if (!isLiveMode) return;
                 const initAuth = async () => {
-                    try { await signInAnonymously(auth); } catch (e) { console.error("Auth error:", e); }
+                    try {
+                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                            try {
+                                await signInWithCustomToken(auth, __initial_auth_token);
+                            } catch (tokenError) {
+                                console.warn("Custom token failed (likely a mismatch), falling back to anonymous auth:", tokenError);
+                                await signInAnonymously(auth);
+                            }
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                    } catch (e) {
+                        console.error("Auth error:", e);
+                    }
                 };
                 initAuth();
                 const unsubscribe = onAuthStateChanged(auth, setUser);
                 return () => unsubscribe();
             }, []);
 
-            // The Telemetry Function (Saves to a new drawer: 'airGuardResponses')
+            // The Telemetry Function (Saves to the strict paths drawer: 'airGuardResponses')
             const submitResponse = async (moduleTitle, text) => {
-                if (!studentName.trim() || !isLiveMode || !db) return;
+                if (!studentName.trim() || !isLiveMode || !db || !user) return;
                 try {
-                    await addDoc(collection(db, 'airGuardResponses'), {
+                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'airGuardResponses'), {
                         studentName, 
                         phase: moduleTitle, 
                         text, 
@@ -125,9 +139,9 @@
                 switch (currentScreen) {
                     case 'home': return <Home onStart={() => setCurrentScreen('dashboard')} studentName={studentName} setStudentName={setStudentName} />;
                     case 'dashboard': return <Dashboard completedModules={completedModules} onSelect={setCurrentScreen} progress={getProgress()} />;
-                    case 'mod1': return <Module1 onComplete={() => markCompleted('mod1')} onBack={() => setCurrentScreen('dashboard')} />;
-                    case 'mod2': return <Module2 onComplete={() => markCompleted('mod2')} onBack={() => setCurrentScreen('dashboard')} />;
-                    case 'mod3': return <Module3 onComplete={() => markCompleted('mod3')} onBack={() => setCurrentScreen('dashboard')} />;
+                    case 'mod1': return <Module1 onComplete={() => markCompleted('mod1')} onBack={() => setCurrentScreen('dashboard')} submitResponse={(t) => submitResponse("Module 1: Atmospheric Baseline", t)} />;
+                    case 'mod2': return <Module2 onComplete={() => markCompleted('mod2')} onBack={() => setCurrentScreen('dashboard')} submitResponse={(t) => submitResponse("Module 2: Pollutant Case Files", t)} />;
+                    case 'mod3': return <Module3 onComplete={() => markCompleted('mod3')} onBack={() => setCurrentScreen('dashboard')} submitResponse={(t) => submitResponse("Module 3: Carbon Ledger", t)} />;
                     case 'mod4': return <Module4 onComplete={() => markCompleted('mod4')} onBack={() => setCurrentScreen('dashboard')} submitResponse={(t) => submitResponse("Module 4: Climate Strategy", t)} />;
                     default: return <Home onStart={() => setCurrentScreen('dashboard')} studentName={studentName} setStudentName={setStudentName} />;
                 }
@@ -261,7 +275,7 @@
             );
         };
 
-        const Module1 = ({ onComplete, onBack }) => {
+        const Module1 = ({ onComplete, onBack, submitResponse }) => {
             const [values, setValues] = useState({ nitrogen: '', oxygen: '', others: '' });
             const [error, setError] = useState('');
             const [success, setSuccess] = useState(false);
@@ -270,8 +284,13 @@
                 const n = parseInt(values.nitrogen);
                 const o = parseInt(values.oxygen);
                 const ot = parseInt(values.others);
+                
+                const isSuccess = (n === 78 && o === 21 && ot === 1);
 
-                if (n === 78 && o === 21 && ot === 1) {
+                // 🔥 Telemetry: Fire the attempt response
+                submitResponse(`Calibration Attempt: N2(${isNaN(n) ? '-' : n}%), O2(${isNaN(o) ? '-' : o}%), Others(${isNaN(ot) ? '-' : ot}%) - ${isSuccess ? 'SUCCESS' : 'FAILED'}`);
+
+                if (isSuccess) {
                     setSuccess(true);
                     setError('');
                     onComplete();
@@ -336,20 +355,11 @@
                             {success ? <><Icon name="check" className="w-5 h-5" /> CALIBRATED</> : 'CALIBRATE SENSORS'}
                         </button>
                     </div>
-
-                    <div className="bg-slate-800/50 p-5 rounded-xl border border-slate-700/50 shadow-sm">
-                        <h4 className="text-sm font-bold text-cyan-400 uppercase tracking-wider mb-2 flex items-center gap-2">
-                            <Icon name="help-circle" className="w-4 h-4" /> Field Question
-                        </h4>
-                        <p className="text-sm text-slate-300 italic leading-relaxed">
-                            "If a fire blanket is thrown over a burning beaker in the lab, which gas from your baseline are we trying to eliminate from the equation to stop the combustion?"
-                        </p>
-                    </div>
                 </div>
             );
         };
 
-        const Module2 = ({ onComplete, onBack }) => {
+        const Module2 = ({ onComplete, onBack, submitResponse }) => {
             const [currentCase, setCurrentCase] = useState(0);
             const [success, setSuccess] = useState(false);
             const [feedback, setFeedback] = useState(null);
@@ -382,7 +392,12 @@
             ];
 
             const handleGuess = (guess) => {
-                if (guess === cases[currentCase].answer) {
+                const isCorrect = guess === cases[currentCase].answer;
+                
+                // 🔥 Telemetry: Fire the attempt response
+                submitResponse(`Case ${currentCase + 1} Selection: ${guess} - ${isCorrect ? 'SUCCESS' : 'FAILED'}`);
+
+                if (isCorrect) {
                     setFeedback({ type: 'success', text: cases[currentCase].explanation });
                     setTimeout(() => {
                         setFeedback(null);
@@ -467,7 +482,7 @@
             );
         };
 
-        const Module3 = ({ onComplete, onBack }) => {
+        const Module3 = ({ onComplete, onBack, submitResponse }) => {
             const [items, setItems] = useState([
                 { id: 1, name: 'Photosynthesis', category: null },
                 { id: 2, name: 'Respiration', category: null },
@@ -498,8 +513,12 @@
                 }
 
                 const wrongItems = items.filter(item => item.category !== answers[item.id]);
+                const isSuccess = wrongItems.length === 0;
 
-                if (wrongItems.length === 0) {
+                // 🔥 Telemetry: Fire the attempt response
+                submitResponse(`Ledger Verification - ${isSuccess ? 'SUCCESS' : `FAILED (Incorrect: ${wrongItems.map(i => i.name).join(', ')})`}`);
+
+                if (isSuccess) {
                     setSuccess(true);
                     setError('');
                     onComplete();
@@ -701,11 +720,18 @@
             
             useEffect(() => {
                 if (!isLiveMode || !user || !isUnlocked) return;
-                // Looking into the new 'airGuardResponses' drawer
-                return onSnapshot(collection(db, 'airGuardResponses'), s => {
-                    const data = s.docs.map(d => ({id: d.id, ...d.data()}));
-                    setRes(data.sort((a,b) => b.timestamp - a.timestamp));
-                });
+                // Looking into the strictly compliant telemetry drawer
+                const unsubscribe = onSnapshot(
+                    collection(db, 'artifacts', appId, 'public', 'data', 'airGuardResponses'), 
+                    (s) => {
+                        const data = s.docs.map(d => ({id: d.id, ...d.data()}));
+                        setRes(data.sort((a,b) => b.timestamp - a.timestamp));
+                    }, 
+                    (err) => {
+                        console.error("Telemetry connection blocked by firewall (permissions): ", err);
+                    }
+                );
+                return () => unsubscribe();
             }, [user, isUnlocked]);
 
             const handleUnlock = () => {
@@ -720,10 +746,10 @@
             };
 
             const executeClearAll = async () => {
-                if (!db) return;
+                if (!db || !user) return;
                 setIsClearing(true);
                 try {
-                    const deletePromises = res.map(r => deleteDoc(doc(db, 'airGuardResponses', r.id)));
+                    const deletePromises = res.map(r => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'airGuardResponses', r.id)));
                     await Promise.all(deletePromises);
                     setShowConfirm(false);
                 } catch (e) {
