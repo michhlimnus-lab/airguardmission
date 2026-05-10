@@ -40,12 +40,17 @@
 
         const { useState, useEffect, useRef } = React;
 
-        // Custom Icon wrapper to ensure Lucide renders properly in Babel standalone
+        // Custom Icon wrapper to ensure Lucide renders properly in React without causing DOM removal errors
         const Icon = ({ name, className }) => {
+            const iconRef = useRef(null);
             useEffect(() => {
-                if (window.lucide) window.lucide.createIcons();
-            });
-            return <i data-lucide={name} className={className}></i>;
+                if (iconRef.current && window.lucide) {
+                    // We isolate the DOM manipulation from React to prevent NotFoundError
+                    iconRef.current.innerHTML = `<i data-lucide="${name}" class="${className || ''}"></i>`;
+                    window.lucide.createIcons({ root: iconRef.current });
+                }
+            }, [name, className]);
+            return <span ref={iconRef} style={{ display: 'contents' }}></span>;
         };
 
         // ======================================================
