@@ -446,7 +446,7 @@
             }, [res]);
 
             const handleUnlock = () => {
-                if (pin === "8600" && classCode.trim() !== "") { setIsUnlocked(true); setPinError(false); } 
+                if (pin === "0000" && classCode.trim() !== "") { setIsUnlocked(true); setPinError(false); } 
                 else { setPinError(true); setPin(""); }
             };
 
@@ -466,7 +466,7 @@
                             <h2 className="text-2xl font-bold mb-2">Teacher Vault</h2>
                             <p className="text-slate-400 text-sm mb-6">Enter your Class Code and PIN.</p>
                             <input type="text" value={classCode} onChange={e => {setClassCode(e.target.value.toUpperCase()); setPinError(false);}} placeholder="Class Code (e.g. 4A)" className="w-full bg-slate-900 border border-slate-600 rounded-xl p-4 text-center text-xl mb-4 text-white outline-none" />
-                            <input type="password" value={pin} onChange={e => {setPin(e.target.value); setPinError(false);}} onKeyDown={e => e.key === 'Enter' && handleUnlock()} placeholder="PIN (8600)" className="w-full bg-slate-900 border border-slate-600 rounded-xl p-4 text-center text-xl mb-2 text-white outline-none" />
+                            <input type="password" value={pin} onChange={e => {setPin(e.target.value); setPinError(false);}} onKeyDown={e => e.key === 'Enter' && handleUnlock()} placeholder="Enter PIN" className="w-full bg-slate-900 border border-slate-600 rounded-xl p-4 text-center text-xl mb-2 text-white outline-none" />
                             {pinError && <p className="text-rose-500 text-sm mb-4">Invalid Access.</p>}
                             <button onClick={handleUnlock} className="w-full bg-cyan-600 hover:bg-cyan-700 font-bold py-4 rounded-xl mt-4">Unlock Dashboard</button>
                         </div>
