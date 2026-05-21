@@ -1,962 +1,202 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
-import { getFirestore, collection, addDoc, onSnapshot, doc, deleteDoc } from 'firebase/firestore';
-import * as LucideIcons from 'lucide-react';
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AirGuard Mission Control</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-slate-900 text-white font-sans">
+    <div id="root"></div>
 
-
-// Custom Icon wrapper to automatically map string names (e.g., 'arrow-right') to Lucide React components
-const Icon = ({ name, className }) => {
-    const iconName = name.split('-').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join('');
-    const LucideIcon = LucideIcons[iconName];
-    if (!LucideIcon) {
-        console.warn(`Icon ${name} not found`);
-        return null;
-    }
-    return <LucideIcon className={className} />;
-};
-
-// ======================================================
-// 🔥 FIREBASE CONFIG & INITIALIZATION
-// ======================================================
-let firebaseConfig;
-try {
-    firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
-    if (!firebaseConfig.apiKey) throw new Error("Missing config");
-} catch (e) {
-    // Fallback to the provided dev credentials if the environment config is unavailable
-    firebaseConfig = {
-        apiKey: "AIzaSyDRO8liDHigDRzV0jpHn3c4SmDlC-l3qLc",
-        authDomain: "chem-detective-2026.firebaseapp.com",
-        projectId: "chem-detective-2026",
-        storageBucket: "chem-detective-2026.firebasestorage.app",
-        messagingSenderId: "477655926627",
-        appId: "1:477655926627:web:2a7d12a0163b54af5ab556"
-    };
-}
-
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'chem-detective-2026';
-
-
-export default function App() {
-    const [currentScreen, setCurrentScreen] = useState('home');
-    const [studentName, setStudentName] = useState('');
-    const [showTeacherView, setShowTeacherView] = useState(false);
-    const [user, setUser] = useState(null);
-    
-    const [completedModules, setCompletedModules] = useState({
-        mod1: false, mod2: false, mod3: false, mod4: false,
-    });
-
-    // Authenticate silently using strictly compliant token logic with fallback
-    useEffect(() => {
-        const initAuth = async () => {
-            try {
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    try {
-                        await signInWithCustomToken(auth, __initial_auth_token);
-                    } catch (tokenError) {
-                        console.warn("Custom token failed (likely a mismatch), falling back to anonymous auth:", tokenError);
-                        await signInAnonymously(auth);
-                    }
-                } else {
-                    await signInAnonymously(auth);
-                }
-            } catch (e) {
-                console.error("Auth error:", e);
-            }
+    <script type="text/babel">
+        // ========================================================
+        // 🚨 IMPORTANT: REPLACE THESE WITH YOUR FIREBASE KEYS 🚨
+        // ========================================================
+        const firebaseConfig = {
+            apiKey: "AIzaSyDRO8liDHigDRzV0jpHn3c4SmDlC-l3qLc",
+            authDomain: "your-project-id.firebaseapp.com",
+            projectId: "your-project-id",
+            storageBucket: "your-project-id.appspot.com",
+            messagingSenderId: "1234567890",
+            appId: "1:1234567890:web:abcdef123456"
         };
-        initAuth();
-        const unsubscribe = onAuthStateChanged(auth, setUser);
-        return () => unsubscribe();
-    }, []);
-
-    // The Telemetry Function (Saves to the strict paths drawer: 'airGuardResponses')
-    const submitResponse = async (moduleTitle, text) => {
-        if (!studentName.trim() || !db || !user) return;
+        
+        let db, auth;
         try {
-            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'airGuardResponses'), {
-                studentName, 
-                phase: moduleTitle, 
-                text, 
-                timestamp: Date.now(),
-                userId: user.uid
-            });
-        } catch (e) { 
-            console.error("Submission failed: ", e); 
-        }
-    };
-
-    const markCompleted = (mod) => {
-        setCompletedModules(prev => ({ ...prev, [mod]: true }));
-        setTimeout(() => setCurrentScreen('dashboard'), 1500);
-    };
-
-    const getProgress = () => Object.values(completedModules).filter(Boolean).length;
-
-
-    if (showTeacherView) {
-        return (
-            <div className="min-h-screen bg-slate-900 text-slate-100 font-sans selection:bg-cyan-500/30">
-                <TeacherDashboard onClose={() => setShowTeacherView(false)} user={user} />
-            </div>
-        );
-    }
-
-    const renderScreen = () => {
-        switch (currentScreen) {
-            case 'home': return <Home onStart={() => setCurrentScreen('dashboard')} studentName={studentName} setStudentName={setStudentName} />;
-            case 'dashboard': return <Dashboard completedModules={completedModules} onSelect={setCurrentScreen} progress={getProgress()} />;
-            case 'mod1': return <Module1 onComplete={() => markCompleted('mod1')} onBack={() => setCurrentScreen('dashboard')} submitResponse={(t) => submitResponse("Module 1: Atmospheric Baseline", t)} />;
-            case 'mod2': return <Module2 onComplete={() => markCompleted('mod2')} onBack={() => setCurrentScreen('dashboard')} submitResponse={(t) => submitResponse("Module 2: Pollutant Case Files", t)} />;
-            case 'mod3': return <Module3 onComplete={() => markCompleted('mod3')} onBack={() => setCurrentScreen('dashboard')} submitResponse={(t) => submitResponse("Module 3: Carbon Ledger", t)} />;
-            case 'mod4': return <Module4 onComplete={() => markCompleted('mod4')} onBack={() => setCurrentScreen('dashboard')} submitResponse={(t) => submitResponse("Module 4: Climate Strategy", t)} />;
-            default: return <Home onStart={() => setCurrentScreen('dashboard')} studentName={studentName} setStudentName={setStudentName} />;
-        }
-    };
-
-    return (
-        <div className="min-h-screen bg-slate-900 text-slate-100 font-sans selection:bg-cyan-500/30 p-4 md:p-6">
-            <style dangerouslySetInnerHTML={{__html: `
-                @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-                @keyframes bounceIn { 
-                    0% { opacity: 0; transform: scale(0.9); } 
-                    50% { opacity: 1; transform: scale(1.05); } 
-                    100% { transform: scale(1); } 
-                }
-                .animate-fade-in { animation: fadeIn 0.5s ease-out forwards; }
-                .animate-bounce-in { animation: bounceIn 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
-                ::-webkit-scrollbar { width: 8px; }
-                ::-webkit-scrollbar-track { background: #1e293b; }
-                ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
-                ::-webkit-scrollbar-thumb:hover { background: #475569; }
-            `}} />
-            <div className="max-w-4xl mx-auto min-h-screen flex flex-col">
-                <header className="flex items-center justify-between py-4 border-b border-slate-700 mb-6">
-                    <div className="flex items-center gap-3">
-                        <div className="bg-cyan-500 p-2 rounded-lg text-slate-900">
-                            <Icon name="shield" className="w-6 h-6" />
-                        </div>
-                        <div>
-                            <h1 className="text-xl font-bold text-white tracking-wider">AIRGUARD</h1>
-                            <p className="text-xs text-cyan-400 font-mono">TASK FORCE INTERACTIVE</p>
-                        </div>
-                    </div>
-                    
-                    <div className="flex items-center gap-4">
-                        <button onClick={() => setShowTeacherView(true)} className="text-slate-500 hover:text-cyan-400 transition-colors" title="Teacher Vault">
-                            <Icon name="eye" className="w-5 h-5" />
-                        </button>
-                        {currentScreen !== 'home' && (
-                            <div className="flex items-center gap-2 bg-slate-800 px-3 py-1.5 rounded-full border border-slate-700">
-                                <Icon name="activity" className="w-4 h-4 text-emerald-400" />
-                                <span className="font-mono text-xs text-emerald-400 font-bold">Lvl {getProgress()}/4</span>
-                            </div>
-                        )}
-                    </div>
-                </header>
-                <main className="flex-grow">{renderScreen()}</main>
-                <footer className="mt-8 py-4 border-t border-slate-800 text-center text-xs text-slate-500">
-                    Chapter 19: Maintaining Air Quality • Sec 4 G2 Science (Chemistry)
-                </footer>
-            </div>
-        </div>
-    );
-}
-
-
-const Home = ({ onStart, studentName, setStudentName }) => (
-    <div className="flex flex-col items-center justify-center text-center space-y-8 mt-12 animate-fade-in">
-        <div className="relative">
-            <div className="absolute inset-0 bg-cyan-500 blur-[100px] opacity-20 rounded-full"></div>
-            <Icon name="shield" className="w-32 h-32 text-cyan-400 relative z-10" />
-        </div>
-        <div className="max-w-xl space-y-4">
-            <h2 className="text-4xl font-extrabold text-white">Welcome, Recruit.</h2>
-            <p className="text-lg text-slate-300 leading-relaxed">
-                You've been assigned to the AirGuard Task Force. Your mission is to investigate air quality incidents, identify dangerous pollutants, balance the carbon cycle, and propose climate policies.
-            </p>
-            <p className="text-md text-cyan-400 font-medium">
-                We need critical thinkers. Are you ready?
-            </p>
-        </div>
-        
-        <div className="w-full max-w-sm bg-slate-800/80 p-6 rounded-2xl border border-slate-700 shadow-xl backdrop-blur-sm">
-            <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Identify Yourself</label>
-            <input 
-                type="text" 
-                placeholder="Enter Cadet Name" 
-                value={studentName}
-                onChange={(e) => setStudentName(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-center text-white focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400 transition-all mb-4"
-            />
-            <button 
-                onClick={onStart} 
-                disabled={!studentName.trim()}
-                className={`w-full group relative px-8 py-4 font-bold rounded-xl transition-all flex items-center justify-center gap-2 ${studentName.trim() ? 'bg-cyan-600 hover:bg-cyan-500 text-white shadow-[0_0_20px_rgba(6,182,212,0.4)] hover:shadow-[0_0_30px_rgba(6,182,212,0.6)]' : 'bg-slate-700 text-slate-500 cursor-not-allowed'}`}
-            >
-                INITIATE DASHBOARD <Icon name="arrow-right" className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-            </button>
-        </div>
-    </div>
-);
-
-const Dashboard = ({ completedModules, onSelect, progress }) => {
-    const modules = [
-        { id: 'mod1', title: 'Atmospheric Baseline', desc: 'Verify the normal composition of unpolluted air.', icon: 'wind', color: 'text-blue-400', bg: 'bg-blue-400/10', border: 'border-blue-400/30' },
-        { id: 'mod2', title: 'The Pollutant Case Files', desc: 'Identify harmful gases, their sources, and their effects.', icon: 'factory', color: 'text-orange-400', bg: 'bg-orange-400/10', border: 'border-orange-400/30' },
-        { id: 'mod3', title: 'Carbon Ledger', desc: 'Map the sinks and sources of the Carbon Cycle.', icon: 'leaf', color: 'text-emerald-400', bg: 'bg-emerald-400/10', border: 'border-emerald-400/30' },
-        { id: 'mod4', title: 'Climate Strategy', desc: 'Analyze trade-offs in global warming mitigation.', icon: 'thermometer-sun', color: 'text-red-400', bg: 'bg-red-400/10', border: 'border-red-400/30' },
-    ];
-
-    return (
-        <div className="space-y-6 animate-fade-in">
-            <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-lg">
-                <h3 className="text-2xl font-bold mb-2 text-white">Mission Control</h3>
-                <p className="text-slate-400 mb-4">Complete all 4 operational modules to earn your AirGuard badge. Pay attention to the data; assumptions can be dangerous.</p>
-                <div className="w-full bg-slate-900 rounded-full h-4 mb-2 overflow-hidden border border-slate-700">
-                    <div className="bg-gradient-to-r from-cyan-500 to-blue-500 h-4 rounded-full transition-all duration-1000" style={{ width: `${(progress / 4) * 100}%` }}></div>
-                </div>
-                <p className="text-right text-sm font-mono text-cyan-400 font-bold">{progress * 25}% Complete</p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {modules.map((m) => {
-                    const isDone = completedModules[m.id];
-                    return (
-                        <button key={m.id} onClick={() => onSelect(m.id)} className={`p-6 rounded-2xl border text-left transition-all relative overflow-hidden group ${isDone ? 'border-slate-600 bg-slate-800/50 opacity-70' : `hover:bg-slate-800 hover:-translate-y-1 ${m.bg} ${m.border}`}`}>
-                            {isDone && <div className="absolute inset-0 bg-emerald-500/5 z-0"></div>}
-                            <div className="flex items-start justify-between relative z-10">
-                                <div className="flex gap-4">
-                                    <div className={`p-3 rounded-lg bg-slate-900 shadow-inner ${m.color}`}>
-                                        <Icon name={m.icon} className="w-6 h-6" />
-                                    </div>
-                                    <div>
-                                        <h4 className={`text-xl font-bold ${isDone ? 'text-slate-300' : 'text-white'} flex items-center gap-2`}>
-                                            {m.title}
-                                        </h4>
-                                        <p className="text-sm text-slate-400 mt-1">{m.desc}</p>
-                                    </div>
-                                </div>
-                                {isDone && <Icon name="check-circle" className="w-6 h-6 text-emerald-500 flex-shrink-0" />}
-                            </div>
-                        </button>
-                    );
-                })}
-            </div>
-
-            {progress === 4 && (
-                <div className="mt-8 p-6 bg-gradient-to-br from-emerald-900/40 to-cyan-900/40 border border-emerald-500/30 rounded-2xl text-center animate-bounce-in shadow-2xl">
-                    <div className="inline-block p-4 bg-emerald-500/20 rounded-full mb-4">
-                        <Icon name="award" className="w-12 h-12 text-emerald-400" />
-                    </div>
-                    <h3 className="text-2xl font-bold text-white mb-2">AirGuard Certification Achieved!</h3>
-                    <p className="text-emerald-200">Excellent work. You've demonstrated a strong understanding of air quality and the critical thinking needed to protect our environment.</p>
-                </div>
-            )}
-        </div>
-    );
-};
-
-
-const Module1 = ({ onComplete, onBack, submitResponse }) => {
-    const [values, setValues] = useState({ nitrogen: '', oxygen: '', others: '' });
-    const [error, setError] = useState('');
-    const [success, setSuccess] = useState(false);
-
-    const checkValues = () => {
-        const n = parseInt(values.nitrogen);
-        const o = parseInt(values.oxygen);
-        const ot = parseInt(values.others);
-        
-        const isSuccess = (n === 78 && o === 21 && ot === 1);
-
-        submitResponse(`Calibration Attempt: N2(${isNaN(n) ? '-' : n}%), O2(${isNaN(o) ? '-' : o}%), Others(${isNaN(ot) ? '-' : ot}%) - ${isSuccess ? 'SUCCESS' : 'FAILED'}`);
-
-        if (isSuccess) {
-            setSuccess(true);
-            setError('');
-            onComplete();
-        } else if (n + o + ot !== 100) {
-            setError("The percentages must add up to 100%.");
-        } else {
-            setError("Incorrect proportions. Think about the most abundant gas first.");
-        }
-    };
-
-    return (
-        <div className="space-y-6 animate-fade-in max-w-2xl mx-auto">
-            <button onClick={onBack} className="text-cyan-400 hover:text-cyan-300 flex items-center gap-1 text-sm font-medium transition-colors">
-                <Icon name="arrow-left" className="w-4 h-4" /> Back to Control
-            </button>
-            
-            <div className="bg-slate-800 p-6 md:p-8 rounded-2xl border border-slate-700 shadow-xl">
-                <h2 className="text-2xl font-bold mb-4 flex items-center gap-3 text-white">
-                    <div className="p-2 bg-blue-500/20 rounded-lg"><Icon name="wind" className="text-blue-400 w-6 h-6" /></div>
-                    Module 1: Atmospheric Baseline
-                </h2>
-                <p className="text-slate-300 mb-6 bg-slate-900 p-5 rounded-xl border border-slate-700 border-l-4 border-l-blue-500 shadow-inner">
-                    "Recruit, before we detect anomalies (pollution), we must know the baseline. Calibrate the atmospheric sensors to reflect the composition of clean, dry air."
-                </p>
-
-                <div className="space-y-4">
-                    <div className="flex items-center justify-between bg-slate-900 p-4 rounded-xl border border-slate-700 focus-within:border-blue-500 transition-colors">
-                        <label className="font-medium text-slate-200">Nitrogen (N₂)</label>
-                        <div className="flex items-center gap-2">
-                            <input type="number" min="0" max="100" className="w-20 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-center text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all" 
-                                value={values.nitrogen} onChange={e => setValues({...values, nitrogen: e.target.value})} />
-                            <span className="text-slate-400 font-bold">%</span>
-                        </div>
-                    </div>
-
-                    <div className="flex items-center justify-between bg-slate-900 p-4 rounded-xl border border-slate-700 focus-within:border-blue-500 transition-colors">
-                        <label className="font-medium text-slate-200">Oxygen (O₂)</label>
-                        <div className="flex items-center gap-2">
-                            <input type="number" min="0" max="100" className="w-20 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-center text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all" 
-                                value={values.oxygen} onChange={e => setValues({...values, oxygen: e.target.value})} />
-                            <span className="text-slate-400 font-bold">%</span>
-                        </div>
-                    </div>
-
-                    <div className="flex items-center justify-between bg-slate-900 p-4 rounded-xl border border-slate-700 focus-within:border-blue-500 transition-colors">
-                        <div>
-                            <label className="font-medium text-slate-200 block">Noble Gases, CO₂ & Water Vapour</label>
-                            <span className="text-xs text-slate-500">The "Others" category</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            <input type="number" min="0" max="100" className="w-20 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-center text-white focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all" 
-                                value={values.others} onChange={e => setValues({...values, others: e.target.value})} />
-                            <span className="text-slate-400 font-bold">%</span>
-                        </div>
-                    </div>
-                </div>
-
-                {error && <p className="text-red-400 text-sm mt-4 flex items-center gap-2 bg-red-500/10 p-3 rounded-lg border border-red-500/20"><Icon name="alert-triangle" className="w-4 h-4 flex-shrink-0" /> {error}</p>}
-                {success && <p className="text-emerald-400 font-bold mt-4 flex items-center gap-2 bg-emerald-500/10 p-3 rounded-lg border border-emerald-500/20"><Icon name="check-circle" className="w-5 h-5 flex-shrink-0" /> Sensors calibrated! Logging result...</p>}
-
-                <button onClick={checkValues} disabled={success} className="w-full mt-6 py-4 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition-all shadow-lg active:scale-95 disabled:opacity-50 disabled:scale-100 flex items-center justify-center gap-2">
-                    {success ? <><Icon name="check" className="w-5 h-5" /> CALIBRATED</> : 'CALIBRATE SENSORS'}
-                </button>
-            </div>
-        </div>
-    );
-};
-
-const Module2 = ({ onComplete, onBack, submitResponse }) => {
-    const [currentCase, setCurrentCase] = useState(0);
-    const [success, setSuccess] = useState(false);
-    const [feedback, setFeedback] = useState(null);
-
-    const cases = [
-        {
-            title: "Case File #001: The Choking City",
-            scenario: "Hospitals report a spike in patients with severe breathing difficulties. Residents complain of a foul smell, and ancient limestone statues in the city square are dissolving.",
-            clue: "Analysis of the air shows high levels of a gas produced from burning coal containing impurities.",
-            options: ["Carbon Monoxide (CO)", "Sulfur Dioxide (SO₂)", "Methane (CH₄)"],
-            answer: "Sulfur Dioxide (SO₂)",
-            explanation: "Correct. SO₂ comes from burning sulfur-containing fossil fuels (like coal). It irritates eyes/lungs and dissolves in rain to form acid rain, which corrodes limestone buildings."
-        },
-        {
-            title: "Case File #002: The Silent Garage",
-            scenario: "A person is found unconscious in a closed garage with a car engine left running. There was no smoke and no smell.",
-            clue: "Blood tests show the haemoglobin in the victim's blood is unable to transport oxygen.",
-            options: ["Nitrogen Dioxide (NO₂)", "Ozone (O₃)", "Carbon Monoxide (CO)"],
-            answer: "Carbon Monoxide (CO)",
-            explanation: "Correct. CO is colourless and odourless. Produced by the incomplete combustion of petrol, it binds strongly to haemoglobin, starving the body of oxygen."
-        },
-        {
-            title: "Case File #003: The Lightning Storm",
-            scenario: "Following a massive thunderstorm, monitoring stations detect an unusual reddish-brown gas in the atmosphere.",
-            clue: "The high temperatures of lightning strikes caused two unreactive baseline gases to combine.",
-            options: ["Unburnt Hydrocarbons", "Oxides of Nitrogen (NOx)", "Carbon Dioxide (CO₂)"],
-            answer: "Oxides of Nitrogen (NOx)",
-            explanation: "Correct! The extreme heat of lightning (or car engines) provides enough energy for Nitrogen and Oxygen to react, forming NOx, which also causes acid rain."
-        }
-    ];
-
-    const handleGuess = (guess) => {
-        const isCorrect = guess === cases[currentCase].answer;
-        
-        submitResponse(`Case ${currentCase + 1} Selection: ${guess} - ${isCorrect ? 'SUCCESS' : 'FAILED'}`);
-
-        if (isCorrect) {
-            setFeedback({ type: 'success', text: cases[currentCase].explanation });
-            setTimeout(() => {
-                setFeedback(null);
-                if (currentCase < cases.length - 1) {
-                    setCurrentCase(c => c + 1);
-                } else {
-                    setSuccess(true);
-                    onComplete();
-                }
-            }, 3000);
-        } else {
-            setFeedback({ type: 'error', text: "Incorrect. Re-read the clues carefully. Think about the sources." });
-        }
-    };
-
-    return (
-        <div className="space-y-6 animate-fade-in max-w-2xl mx-auto">
-            <button onClick={onBack} className="text-cyan-400 hover:text-cyan-300 flex items-center gap-1 text-sm font-medium transition-colors">
-                <Icon name="arrow-left" className="w-4 h-4" /> Back to Control
-            </button>
-
-            <div className="bg-slate-800 p-6 md:p-8 rounded-2xl border border-slate-700 shadow-xl relative overflow-hidden">
-                {success ? (
-                    <div className="text-center py-12 space-y-4 animate-bounce-in">
-                        <div className="inline-block p-4 bg-emerald-500/20 rounded-full mb-2">
-                            <Icon name="check-circle" className="w-16 h-16 text-emerald-500 mx-auto" />
-                        </div>
-                        <h2 className="text-2xl font-bold text-white">All Cases Closed</h2>
-                        <p className="text-slate-300">Excellent deductive reasoning, Detective.</p>
-                    </div>
-                ) : (
-                    <>
-                        <div className="flex justify-between items-center mb-6 border-b border-slate-700 pb-4">
-                            <h2 className="text-xl md:text-2xl font-bold flex items-center gap-3 text-white">
-                                <div className="p-2 bg-orange-500/20 rounded-lg"><Icon name="factory" className="text-orange-400 w-6 h-6" /></div> 
-                                {cases[currentCase].title}
-                            </h2>
-                            <span className="text-xs font-bold font-mono bg-slate-900 text-slate-400 px-3 py-1.5 rounded-full border border-slate-700 shadow-inner tracking-widest uppercase">
-                                File {currentCase + 1}/{cases.length}
-                            </span>
-                        </div>
-
-                        <div className="space-y-4 mb-8">
-                            <div className="bg-slate-900/80 p-5 rounded-xl border border-slate-700 shadow-inner">
-                                <h4 className="text-xs uppercase text-slate-500 font-bold mb-2 tracking-wider flex items-center gap-2"><Icon name="file-text" className="w-4 h-4" /> Scenario</h4>
-                                <p className="text-slate-200 leading-relaxed">{cases[currentCase].scenario}</p>
-                            </div>
-                            <div className="bg-orange-900/20 border border-orange-500/30 p-5 rounded-xl flex items-start gap-3 shadow-inner">
-                                <Icon name="search" className="w-5 h-5 text-orange-400 flex-shrink-0 mt-0.5" />
-                                <div>
-                                    <h4 className="text-xs uppercase text-orange-400 font-bold mb-1 tracking-wider">Forensic Clue</h4>
-                                    <p className="text-orange-100 leading-relaxed">{cases[currentCase].clue}</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="grid gap-3">
-                            <p className="text-sm font-bold text-slate-400 mb-2 uppercase tracking-wider">Identify the culprit:</p>
-                            {cases[currentCase].options.map((opt, i) => (
-                                <button
-                                    key={i}
-                                    onClick={() => handleGuess(opt)}
-                                    disabled={feedback?.type === 'success'}
-                                    className="p-4 text-left font-medium text-slate-200 bg-slate-700 hover:bg-slate-600 border border-slate-600 rounded-xl transition-all shadow-sm hover:shadow-md disabled:opacity-50 disabled:hover:bg-slate-700 flex justify-between items-center group"
-                                >
-                                    {opt}
-                                    <Icon name="chevron-right" className="w-4 h-4 opacity-0 group-hover:opacity-100 text-slate-400 transition-opacity" />
-                                </button>
-                            ))}
-                        </div>
-
-                        {feedback && (
-                            <div className={`mt-6 p-5 rounded-xl flex items-start gap-3 animate-fade-in shadow-inner ${feedback.type === 'success' ? 'bg-emerald-900/30 border border-emerald-500/50' : 'bg-red-900/30 border border-red-500/50'}`}>
-                                {feedback.type === 'success' ? <Icon name="check-circle" className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" /> : <Icon name="alert-triangle" className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />}
-                                <p className={`leading-relaxed ${feedback.type === 'success' ? 'text-emerald-100' : 'text-red-100'}`}>{feedback.text}</p>
-                            </div>
-                        )}
-                    </>
-                )}
-            </div>
-        </div>
-    );
-};
-
-const Module3 = ({ onComplete, onBack, submitResponse }) => {
-    const [items, setItems] = useState([
-        { id: 1, name: 'Photosynthesis', category: null },
-        { id: 2, name: 'Respiration', category: null },
-        { id: 3, name: 'Combustion of Fossil Fuels', category: null },
-        { id: 4, name: 'Decomposition', category: null },
-        { id: 5, name: 'Ocean Absorption', category: null }
-    ]);
-    const [error, setError] = useState('');
-    const [success, setSuccess] = useState(false);
-
-    const categories = {
-        source: "Adds CO₂ to Air",
-        sink: "Removes CO₂ from Air"
-    };
-
-    const answers = { 1: 'sink', 2: 'source', 3: 'source', 4: 'source', 5: 'sink' };
-
-    const handleSelect = (itemId, category) => {
-        setItems(items.map(item => item.id === itemId ? { ...item, category } : item));
-        setError('');
-    };
-
-    const verifyAnswers = () => {
-        const unassigned = items.find(i => i.category === null);
-        if (unassigned) {
-            setError("Please classify all processes.");
-            return;
-        }
-
-        const wrongItems = items.filter(item => item.category !== answers[item.id]);
-        const isSuccess = wrongItems.length === 0;
-
-        submitResponse(`Ledger Verification - ${isSuccess ? 'SUCCESS' : `FAILED (Incorrect: ${wrongItems.map(i => i.name).join(', ')})`}`);
-
-        if (isSuccess) {
-            setSuccess(true);
-            setError('');
-            onComplete();
-        } else {
-            const wrongNames = wrongItems.map(i => i.name).join(', ');
-            setError(`Atmospheric balance error. Review your classification for: ${wrongNames}.`);
-        }
-    };
-
-    return (
-        <div className="space-y-6 animate-fade-in max-w-3xl mx-auto">
-            <button onClick={onBack} className="text-cyan-400 hover:text-cyan-300 flex items-center gap-1 text-sm font-medium transition-colors">
-                <Icon name="arrow-left" className="w-4 h-4" /> Back to Control
-            </button>
-
-            <div className="bg-slate-800 p-6 md:p-8 rounded-2xl border border-slate-700 shadow-xl">
-                <h2 className="text-2xl font-bold mb-3 flex items-center gap-3 text-white">
-                    <div className="p-2 bg-emerald-500/20 rounded-lg"><Icon name="leaf" className="text-emerald-400 w-6 h-6" /></div>
-                    Module 3: The Carbon Ledger
-                </h2>
-                <p className="text-slate-300 mb-8 leading-relaxed">
-                    The Carbon Cycle regulates global temperatures. You must balance the ledger by categorizing these processes. Do they act as a <span className="text-red-400 font-bold">Source</span> or a <span className="text-emerald-400 font-bold">Sink</span>?
-                </p>
-
-                <div className="grid md:grid-cols-2 gap-6 mb-8">
-                    <div className="bg-red-900/10 border border-red-500/30 rounded-xl p-5 min-h-[280px] shadow-inner flex flex-col">
-                        <h3 className="text-center font-bold text-red-400 mb-4 flex items-center justify-center gap-2 pb-3 border-b border-red-500/20 uppercase tracking-widest text-sm">
-                            <Icon name="arrow-up-right" className="w-5 h-5" /> {categories.source}
-                        </h3>
-                        <div className="space-y-3 flex-grow">
-                            {items.filter(i => i.category === 'source').map(item => (
-                                <div key={item.id} onClick={() => handleSelect(item.id, null)} className="bg-slate-700/80 p-3 rounded-lg text-sm font-medium cursor-pointer hover:bg-slate-600 border border-red-400/40 text-center transition-colors shadow-sm flex items-center justify-between group">
-                                    <span>{item.name}</span>
-                                    <Icon name="x" className="w-4 h-4 text-slate-400 group-hover:text-red-300 transition-colors" />
-                                </div>
-                            ))}
-                            {items.filter(i => i.category === 'source').length === 0 && <div className="h-full flex items-center justify-center text-slate-500 text-sm italic opacity-50">Empty</div>}
-                        </div>
-                    </div>
-
-                    <div className="bg-emerald-900/10 border border-emerald-500/30 rounded-xl p-5 min-h-[280px] shadow-inner flex flex-col">
-                        <h3 className="text-center font-bold text-emerald-400 mb-4 flex items-center justify-center gap-2 pb-3 border-b border-emerald-500/20 uppercase tracking-widest text-sm">
-                            <Icon name="arrow-down-right" className="w-5 h-5" /> {categories.sink}
-                        </h3>
-                        <div className="space-y-3 flex-grow">
-                            {items.filter(i => i.category === 'sink').map(item => (
-                                <div key={item.id} onClick={() => handleSelect(item.id, null)} className="bg-slate-700/80 p-3 rounded-lg text-sm font-medium cursor-pointer hover:bg-slate-600 border border-emerald-400/40 text-center transition-colors shadow-sm flex items-center justify-between group">
-                                    <span>{item.name}</span>
-                                    <Icon name="x" className="w-4 h-4 text-slate-400 group-hover:text-emerald-300 transition-colors" />
-                                </div>
-                            ))}
-                            {items.filter(i => i.category === 'sink').length === 0 && <div className="h-full flex items-center justify-center text-slate-500 text-sm italic opacity-50">Empty</div>}
-                        </div>
-                    </div>
-                </div>
-
-                <div className="bg-slate-900 p-5 rounded-xl border border-slate-700 mb-8 shadow-inner">
-                    <p className="text-xs uppercase text-slate-400 font-bold mb-4 tracking-widest flex items-center gap-2"><Icon name="list" className="w-4 h-4" /> Unclassified Processes</p>
-                    <div className="flex flex-wrap gap-3">
-                        {items.filter(i => i.category === null).map(item => (
-                            <div key={item.id} className="flex bg-slate-800 rounded-lg overflow-hidden border border-slate-600 shadow-sm transition-transform hover:-translate-y-0.5">
-                                <span className="p-3 text-sm font-medium text-slate-200 px-4">{item.name}</span>
-                                <button onClick={() => handleSelect(item.id, 'source')} className="px-4 bg-red-900/40 hover:bg-red-800/80 text-red-300 text-xs font-bold border-l border-slate-600 transition-colors flex items-center gap-1" title="Add to Source"><Icon name="plus" className="w-3 h-3"/> SRC</button>
-                                <button onClick={() => handleSelect(item.id, 'sink')} className="px-4 bg-emerald-900/40 hover:bg-emerald-800/80 text-emerald-300 text-xs font-bold border-l border-slate-600 transition-colors flex items-center gap-1" title="Add to Sink"><Icon name="plus" className="w-3 h-3"/> SNK</button>
-                            </div>
-                        ))}
-                        {items.filter(i => i.category === null).length === 0 && <span className="text-sm text-emerald-500/70 font-medium italic flex items-center gap-2"><Icon name="check" className="w-4 h-4" /> All processes classified. Verify your ledger below.</span>}
-                    </div>
-                </div>
-
-                {error && <p className="text-red-400 text-sm mb-5 flex items-center gap-2 bg-red-500/10 p-3 rounded-lg border border-red-500/20"><Icon name="alert-triangle" className="w-4 h-4 flex-shrink-0" /> {error}</p>}
-                {success && <p className="text-emerald-400 font-bold mb-5 flex items-center gap-2 bg-emerald-500/10 p-3 rounded-lg border border-emerald-500/20"><Icon name="check-circle" className="w-5 h-5 flex-shrink-0" /> Ledger balanced perfectly!</p>}
-
-                <button onClick={verifyAnswers} disabled={success} className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl transition-all shadow-lg active:scale-95 disabled:opacity-50 disabled:scale-100 flex items-center justify-center gap-2">
-                    {success ? <><Icon name="check" className="w-5 h-5" /> VERIFIED</> : 'VERIFY CARBON LEDGER'}
-                </button>
-            </div>
-        </div>
-    );
-};
-
-const Module4 = ({ onComplete, onBack, submitResponse }) => {
-    const [selectedAns, setSelectedAns] = useState(null);
-    const [showFeedback, setShowFeedback] = useState(false);
-
-    const scenario = {
-        title: "The Electric Paradox",
-        text: "The Mayor of the city announces a bold plan to combat Global Warming: 'We will ban all petrol cars and replace them with 1,000,000 Electric Vehicles (EVs). EVs have no exhaust pipes, so they produce zero air pollutants and zero greenhouse gases. This will completely solve our climate crisis!'",
-        question: "As the Chief Air Quality Officer, analyze the Mayor's statement. Is the Mayor entirely correct?",
-        options: [
-            { id: 'a', text: "Yes. Since EVs do not burn petrol, they do not release Carbon Dioxide or pollutants into the atmosphere at all." },
-            { id: 'b', text: "No. EVs don't have exhausts, but if the electricity used to charge them comes from coal-fired power plants, we are just moving the emissions from the cars to the power plant." },
-            { id: 'c', text: "No. EVs actually release Methane from their batteries, which is a worse greenhouse gas than Carbon Dioxide." }
-        ],
-        correct: 'b'
-    };
-
-    const handleSubmit = () => {
-        setShowFeedback(true);
-        
-        const chosenText = scenario.options.find(o => o.id === selectedAns).text;
-        const isSuccess = selectedAns === scenario.correct;
-        
-        // Updated to emit SUCCESS/FAILED for accurate Agent logic
-        submitResponse(`Selected Option [${selectedAns.toUpperCase()}]: ${chosenText} - ${isSuccess ? 'SUCCESS' : 'FAILED'}`);
-
-        if (isSuccess) {
-            setTimeout(() => onComplete(), 4000);
-        }
-    };
-
-    return (
-        <div className="space-y-6 animate-fade-in max-w-2xl mx-auto">
-            <button onClick={onBack} className="text-cyan-400 hover:text-cyan-300 flex items-center gap-1 text-sm font-medium transition-colors">
-                <Icon name="arrow-left" className="w-4 h-4" /> Back to Control
-            </button>
-
-            <div className="bg-slate-800 p-6 md:p-8 rounded-2xl border border-slate-700 shadow-xl">
-                <h2 className="text-2xl font-bold mb-6 flex items-center gap-3 text-white">
-                    <div className="p-2 bg-red-500/20 rounded-lg"><Icon name="thermometer-sun" className="text-red-400 w-6 h-6" /></div>
-                    Module 4: Climate Strategy
-                </h2>
-                
-                <div className="bg-slate-900 border border-red-500/30 p-6 rounded-xl mb-8 shadow-inner">
-                    <h3 className="text-lg font-bold text-slate-200 mb-3 flex items-center gap-2"><Icon name="file-text" className="w-5 h-5 text-slate-400"/> {scenario.title}</h3>
-                    <p className="text-slate-300 leading-relaxed italic border-l-4 border-l-red-500/50 bg-slate-800/50 p-4 rounded-r-lg mb-5">
-                        "{scenario.text}"
-                    </p>
-                    <p className="font-bold text-cyan-300 flex items-start gap-2 bg-cyan-900/20 p-4 rounded-lg border border-cyan-500/20">
-                        <Icon name="help-circle" className="w-5 h-5 flex-shrink-0 mt-0.5" />
-                        {scenario.question}
-                    </p>
-                </div>
-
-                <div className="space-y-4">
-                    <p className="text-xs uppercase text-slate-400 font-bold tracking-widest pl-1">Select your policy analysis:</p>
-                    {scenario.options.map(opt => (
-                        <button
-                            key={opt.id}
-                            onClick={() => { setSelectedAns(opt.id); setShowFeedback(false); }}
-                            disabled={showFeedback && selectedAns === scenario.correct}
-                            className={`w-full text-left p-5 rounded-xl border transition-all ${
-                                selectedAns === opt.id 
-                                    ? 'bg-blue-900/50 border-blue-400 text-white shadow-[0_0_15px_rgba(96,165,250,0.2)] scale-[1.01]' 
-                                    : 'bg-slate-700/50 border-slate-600 text-slate-300 hover:bg-slate-700 hover:border-slate-500'
-                            }`}
-                        >
-                            <div className="flex gap-4">
-                                <span className={`font-bold text-lg mt-[-2px] ${selectedAns === opt.id ? 'text-blue-300' : 'text-slate-500'}`}>{opt.id.toUpperCase()}.</span>
-                                <span className="leading-relaxed">{opt.text}</span>
-                            </div>
-                        </button>
-                    ))}
-                </div>
-
-                {showFeedback && (
-                    <div className={`mt-8 p-6 rounded-xl animate-fade-in shadow-inner ${
-                        selectedAns === scenario.correct 
-                        ? 'bg-emerald-900/30 border border-emerald-500/50 text-emerald-100' 
-                        : 'bg-red-900/30 border border-red-500/50 text-red-100'
-                    }`}>
-                        {selectedAns === scenario.correct ? (
-                            <>
-                                <h4 className="font-bold text-lg flex items-center gap-2 mb-3 text-emerald-300"><Icon name="check-circle" className="w-6 h-6" /> Excellent Critical Thinking.</h4>
-                                <p className="text-sm leading-relaxed text-emerald-100/90">
-                                    You spotted the hidden variables. To truly reduce greenhouse gases, transitioning to EVs must be paired with transitioning the energy grid to renewable sources (like solar or wind) rather than burning fossil fuels.
-                                </p>
-                            </>
-                        ) : (
-                            <>
-                                <h4 className="font-bold text-lg flex items-center gap-2 mb-3 text-red-300"><Icon name="alert-triangle" className="w-6 h-6" /> Incomplete Analysis.</h4>
-                                <p className="text-sm leading-relaxed text-red-100/90">
-                                    Think deeply about the whole system. Where does the electricity to charge an electric car come from in most countries today? Try again.
-                                </p>
-                            </>
-                        )}
-                    </div>
-                )}
-
-                <button 
-                    onClick={handleSubmit}
-                    disabled={!selectedAns || (showFeedback && selectedAns === scenario.correct)}
-                    className="w-full mt-8 py-4 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl transition-all shadow-lg active:scale-95 disabled:opacity-50 disabled:scale-100 flex items-center justify-center gap-2 uppercase tracking-wide"
-                >
-                    {showFeedback && selectedAns === scenario.correct ? <><Icon name="radio" className="w-5 h-5 animate-pulse" /> LOGGING POLICY...</> : 'SUBMIT ANALYSIS'}
-                </button>
-            </div>
-        </div>
-    );
-};
-
-
-function TeacherDashboard({ onClose, user }) {
-    const [isUnlocked, setIsUnlocked] = useState(false);
-    const [pin, setPin] = useState("");
-    const [pinError, setPinError] = useState(false);
-    const [res, setRes] = useState([]);
-    const [copied, setCopied] = useState(false);
-    const [showConfirm, setShowConfirm] = useState(false);
-    const [isClearing, setIsClearing] = useState(false);
-    const [activeTab, setActiveTab] = useState('agent'); // 'agent' or 'raw'
-    
-    useEffect(() => {
-        if (!user || !isUnlocked || !db) return;
-        const unsubscribe = onSnapshot(
-            collection(db, 'artifacts', appId, 'public', 'data', 'airGuardResponses'), 
-            (s) => {
-                const data = s.docs.map(d => ({id: d.id, ...d.data()}));
-                setRes(data.sort((a,b) => b.timestamp - a.timestamp));
-            }, 
-            (err) => {
-                console.error("Telemetry connection blocked: ", err);
-            }
-        );
-        return () => unsubscribe();
-    }, [user, isUnlocked]);
-
-    // --- The Pedagogical Agent Logic ---
-    const agentAnalysis = useMemo(() => {
-        const students = {};
-        res.forEach(r => {
-            if (!students[r.studentName]) {
-                students[r.studentName] = { success: 0, failed: 0, total: 0 };
-            }
-            students[r.studentName].total += 1;
-            if (r.text.includes('SUCCESS')) students[r.studentName].success += 1;
-            if (r.text.includes('FAILED')) students[r.studentName].failed += 1;
-        });
-
-        const categorized = { mastered: [], almost: [], revision: [] };
-
-        Object.keys(students).forEach(name => {
-            const data = students[name];
-            const totalClassified = data.success + data.failed;
-            let bucket = 'revision'; // Default
-            
-            if (totalClassified > 0) {
-                const successRate = data.success / totalClassified;
-                if (successRate >= 0.8) bucket = 'mastered';
-                else if (successRate >= 0.5) bucket = 'almost';
-            }
-            categorized[bucket].push({ name, ...data });
-        });
-
-        return categorized;
-    }, [res]);
-
-    const handleUnlock = () => {
-        if (pin === "8600") {
-            setIsUnlocked(true);
-            setPinError(false);
-        } else {
-            setPinError(true);
-            setPin("");
-        }
-    };
-
-    const executeClearAll = async () => {
-        if (!db || !user) return;
-        setIsClearing(true);
-        try {
-            const deletePromises = res.map(r => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'airGuardResponses', r.id)));
-            await Promise.all(deletePromises);
-            setShowConfirm(false);
+            firebase.initializeApp(firebaseConfig);
+            auth = firebase.auth();
+            db = firebase.firestore();
         } catch (e) {
-            console.error("Error clearing dashboard: ", e);
-        } finally {
-            setIsClearing(false);
+            console.error("Firebase Initialization Error. Please check your config keys.", e);
         }
-    };
 
-    const copyToClipboard = () => {
-        const textToCopy = res.map(r => `Cadet: ${r.studentName}\nPhase: ${r.phase}\nAnalysis: ${r.text}\nTime: ${new Date(r.timestamp).toLocaleTimeString()}\n-------------------`).join('\n\n');
-        navigator.clipboard.writeText(textToCopy).then(() => {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
-        });
-    };
+        const { useState, useEffect, useMemo } = React;
+        const Icon = ({ name, className }) => {
+            useEffect(() => { lucide.createIcons(); }, []);
+            return <i data-lucide={name} className={className}></i>;
+        };
 
-    if (!isUnlocked) {
-        return (
-            <div className="flex flex-col items-center justify-center p-4 relative h-screen w-full">
-                <button onClick={onClose} className="absolute top-8 right-8 bg-slate-800 hover:bg-slate-700 text-slate-300 p-3 rounded-full transition-colors"><Icon name="x" className="w-6 h-6"/></button>
-                <div className="bg-slate-800 p-10 rounded-3xl border border-slate-700 max-w-sm w-full text-center shadow-2xl animate-fade-in relative z-10">
-                    <div className="w-20 h-20 bg-cyan-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
-                        <Icon name="lock" className="w-10 h-10 text-cyan-400" />
-                    </div>
-                    <h2 className="text-2xl font-bold mb-2">Teacher Vault</h2>
-                    <p className="text-slate-400 text-sm mb-8">Enter your secure PIN to access live telemetry.</p>
-                    
-                    <input 
-                        type="password" 
-                        value={pin} 
-                        onChange={e => {setPin(e.target.value); setPinError(false);}} 
-                        onKeyDown={e => e.key === 'Enter' && handleUnlock()}
-                        placeholder="Enter PIN" 
-                        className={`w-full bg-slate-900 border ${pinError ? 'border-rose-500' : 'border-slate-600'} rounded-xl p-4 text-center text-xl tracking-widest focus:ring-2 focus:ring-cyan-500 outline-none mb-2 text-white transition-colors`}
-                    />
-                    {pinError && <p className="text-rose-500 text-sm mb-4 animate-pulse">Incorrect PIN. Nice try!</p>}
-                    {!pinError && <div className="mb-6"></div>}
+        function App() {
+            const [currentScreen, setCurrentScreen] = useState('home');
+            const [studentName, setStudentName] = useState('');
+            const [classCode, setClassCode] = useState('');
+            const [showTeacherView, setShowTeacherView] = useState(false);
+            const [user, setUser] = useState(null);
+            const [completedModules, setCompletedModules] = useState({ mod1: false, mod2: false, mod3: false, mod4: false });
 
-                    <button 
-                        onClick={handleUnlock} 
-                        className="w-full bg-cyan-600 hover:bg-cyan-700 font-bold py-4 rounded-xl transition-all shadow-lg shadow-cyan-500/20"
-                    >
-                        Unlock Dashboard
-                    </button>
+            useEffect(() => {
+                if (!auth) return;
+                auth.signInAnonymously().catch(e => console.error("Auth Error", e));
+                const unsubscribe = auth.onAuthStateChanged(setUser);
+                return () => unsubscribe();
+            }, []);
+
+            const submitResponse = async (moduleTitle, text) => {
+                if (!studentName || !classCode || !db || !user) return;
+                const safeClassCode = classCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+                try {
+                    await db.collection(`airGuardResponses_${safeClassCode}`).add({
+                        studentName,
+                        phase: moduleTitle,
+                        text,
+                        timestamp: Date.now(),
+                        userId: user.uid
+                    });
+                } catch (e) { console.error("Submit error", e); }
+            };
+
+            const markCompleted = (mod) => {
+                setCompletedModules(prev => ({ ...prev, [mod]: true }));
+                setTimeout(() => setCurrentScreen('dashboard'), 1500);
+            };
+
+            const getProgress = () => Object.values(completedModules).filter(Boolean).length;
+
+            if (showTeacherView) return <TeacherDashboard onClose={() => setShowTeacherView(false)} db={db} />;
+
+            const renderScreen = () => {
+                switch (currentScreen) {
+                    case 'home': return <Home onStart={() => setCurrentScreen('dashboard')} studentName={studentName} setStudentName={setStudentName} classCode={classCode} setClassCode={setClassCode} />;
+                    case 'dashboard': return <Dashboard completedModules={completedModules} onSelect={setCurrentScreen} progress={getProgress()} />;
+                    case 'mod1': return <Module1 onComplete={() => markCompleted('mod1')} onBack={() => setCurrentScreen('dashboard')} submitResponse={submitResponse} />;
+                    case 'mod2': return <Module2 onComplete={() => markCompleted('mod2')} onBack={() => setCurrentScreen('dashboard')} submitResponse={submitResponse} />;
+                    case 'mod3': return <Module3 onComplete={() => markCompleted('mod3')} onBack={() => setCurrentScreen('dashboard')} submitResponse={submitResponse} />;
+                    case 'mod4': return <Module4 onComplete={() => markCompleted('mod4')} onBack={() => setCurrentScreen('dashboard')} submitResponse={submitResponse} />;
+                }
+            };
+
+            return (
+                <div className="min-h-screen p-4 md:p-6">
+                    <header className="max-w-4xl mx-auto flex items-center justify-between pb-6 border-b border-slate-700 mb-6">
+                        <div className="flex items-center gap-3">
+                            <div className="bg-cyan-500 p-2 rounded-lg text-slate-900"><Icon name="shield" className="w-6 h-6" /></div>
+                            <div>
+                                <h1 className="text-xl font-bold tracking-wider">AIRGUARD</h1>
+                                <p className="text-xs text-cyan-400 font-mono">MISSION CONTROL</p>
+                            </div>
+                        </div>
+                        <button onClick={() => setShowTeacherView(true)} className="text-slate-500 hover:text-cyan-400"><Icon name="eye" className="w-5 h-5" /></button>
+                    </header>
+                    <main className="max-w-4xl mx-auto">{renderScreen()}</main>
                 </div>
+            );
+        }
+
+        function TeacherDashboard({ onClose, db }) {
+            const [isUnlocked, setIsUnlocked] = useState(false);
+            const [pin, setPin] = useState("");
+            const [classCode, setClassCode] = useState("");
+            const [responses, setResponses] = useState([]);
+
+            useEffect(() => {
+                if (isUnlocked && classCode && db) {
+                    const safeClassCode = classCode.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                    return db.collection(`airGuardResponses_${safeClassCode}`).onSnapshot(s => {
+                        setResponses(s.docs.map(d => d.data()));
+                    });
+                }
+            }, [isUnlocked, classCode, db]);
+
+            const analysis = useMemo(() => {
+                const data = {};
+                responses.forEach(r => {
+                    if (!data[r.studentName]) data[r.studentName] = { success: 0, fail: 0 };
+                    if (r.text.includes("SUCCESS")) data[r.studentName].success += 1;
+                    else if (r.text.includes("FAILED")) data[r.studentName].fail += 1;
+                });
+                return data;
+            }, [responses]);
+
+            if (!isUnlocked) {
+                return (
+                    <div className="flex flex-col items-center justify-center h-screen space-y-4">
+                        <h2 className="text-2xl font-bold mb-4">Teacher Vault Access</h2>
+                        <input className="p-3 rounded bg-slate-800 text-white w-64 border border-slate-600" placeholder="Class Code" onChange={e => setClassCode(e.target.value)} />
+                        <input className="p-3 rounded bg-slate-800 text-white w-64 border border-slate-600" type="password" placeholder="PIN (8600)" onChange={e => setPin(e.target.value)} />
+                        <button onClick={() => pin === "8600" && setIsUnlocked(true)} className="bg-cyan-600 px-6 py-2 rounded font-bold w-64">Unlock Vault</button>
+                        <button onClick={onClose} className="text-slate-500 mt-4">Close</button>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="max-w-4xl mx-auto p-4 bg-slate-800 rounded-xl">
+                    <button onClick={onClose} className="mb-4 text-cyan-400">← Back</button>
+                    <h2 className="text-2xl font-bold mb-4">Class: {classCode} Analysis</h2>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        {Object.keys(analysis).map(name => {
+                            const stats = analysis[name];
+                            const total = stats.success + stats.fail;
+                            const rate = total > 0 ? stats.success / total : 0;
+                            let category = "You need to do more revision!";
+                            if (rate >= 0.8) category = "Congrats, you have mastered the concepts";
+                            else if (rate >= 0.5) category = "Almost there!";
+
+                            return (
+                                <div key={name} className="p-4 bg-slate-900 rounded border border-slate-700">
+                                    <h4 className="font-bold text-white">{name}</h4>
+                                    <p className={`text-xs mt-2 ${rate >= 0.8 ? 'text-emerald-400' : rate >= 0.5 ? 'text-orange-400' : 'text-red-400'}`}>{category}</p>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            );
+        }
+
+        const Home = ({ onStart, studentName, setStudentName, classCode, setClassCode }) => (
+            <div className="space-y-4">
+                <input className="w-full p-4 bg-slate-800 rounded-xl" placeholder="Name" value={studentName} onChange={e => setStudentName(e.target.value)} />
+                <input className="w-full p-4 bg-slate-800 rounded-xl" placeholder="Class Code (e.g. 4A)" value={classCode} onChange={e => setClassCode(e.target.value.toUpperCase())} />
+                <button onClick={onStart} className="w-full bg-cyan-600 py-4 rounded-xl font-bold" disabled={!studentName || !classCode}>INITIATE</button>
             </div>
         );
-    }
 
-    return (
-        <div className="p-4 md:p-8 relative">
-            {showConfirm && (
-                <div className="fixed inset-0 bg-slate-900/95 z-50 flex items-center justify-center p-4">
-                    <div className="bg-slate-800 border border-rose-500/50 p-8 rounded-3xl max-w-md w-full text-center shadow-2xl animate-fade-in">
-                        <div className="inline-block p-4 bg-rose-500/10 rounded-full mb-4">
-                            <Icon name="trash-2" className="w-12 h-12 text-rose-500" />
-                        </div>
-                        <h3 className="text-2xl font-bold mb-2">Nuke all telemetry?</h3>
-                        <p className="text-slate-400 mb-8">This will permanently delete all student submissions. This action cannot be undone.</p>
-                        <div className="flex gap-4">
-                            <button onClick={() => setShowConfirm(false)} className="flex-1 bg-slate-700 hover:bg-slate-600 font-bold py-3 rounded-xl transition-colors">Cancel</button>
-                            <button onClick={executeClearAll} disabled={isClearing} className="flex-1 bg-rose-600 hover:bg-rose-700 font-bold py-3 rounded-xl transition-colors flex justify-center items-center gap-2">
-                                {isClearing ? <Icon name="refresh-cw" className="w-5 h-5 animate-spin" /> : "Yes, Delete All"}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            <div className="max-w-7xl mx-auto">
-                <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-                    <div>
-                        <h1 className="text-3xl font-bold flex items-center gap-3 text-cyan-400">
-                            <Icon name="radio" className="w-8 h-8"/> Control Center
-                        </h1>
-                    </div>
-                    <div className="flex items-center gap-3">
-                        <button onClick={() => setShowConfirm(true)} className="bg-rose-900/30 hover:bg-rose-900/50 transition-colors text-rose-300 border border-rose-700/50 px-4 py-2.5 rounded-lg font-medium text-sm flex items-center gap-2">
-                            <Icon name="trash-2" className="w-4 h-4" /> Clear Data
-                        </button>
-                        <button onClick={onClose} className="bg-cyan-600 hover:bg-cyan-700 transition-colors px-6 py-2.5 rounded-lg font-bold shadow-md flex items-center gap-2 text-sm ml-2">
-                            <Icon name="x" className="w-4 h-4" /> Close Vault
-                        </button>
-                    </div>
-                </div>
-
-                <div className="flex bg-slate-800 p-1 rounded-xl mb-8 border border-slate-700 w-full max-w-sm">
-                    <button onClick={() => setActiveTab('agent')} className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-2 ${activeTab === 'agent' ? 'bg-cyan-500 text-slate-900 shadow-md' : 'text-slate-400 hover:text-white'}`}>
-                        <Icon name="activity" className="w-4 h-4" /> Pedagogical Agent
+        const Dashboard = ({ completedModules, onSelect, progress }) => (
+            <div className="grid grid-cols-2 gap-4">
+                {['mod1', 'mod2', 'mod3', 'mod4'].map(id => (
+                    <button key={id} onClick={() => onSelect(id)} className="bg-slate-800 p-8 rounded-xl border border-slate-700">
+                        {completedModules[id] ? '✅ Done' : `Module ${id.slice(3)}`}
                     </button>
-                    <button onClick={() => setActiveTab('raw')} className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-2 ${activeTab === 'raw' ? 'bg-cyan-500 text-slate-900 shadow-md' : 'text-slate-400 hover:text-white'}`}>
-                        <Icon name="list" className="w-4 h-4" /> Raw Telemetry
-                    </button>
-                </div>
-                
-                {activeTab === 'agent' && (
-                    <div className="grid lg:grid-cols-3 gap-6 animate-fade-in">
-                        {/* Mastered Category */}
-                        <div className="bg-slate-800/50 border border-emerald-500/30 rounded-2xl p-6 shadow-xl">
-                            <div className="flex items-center gap-3 mb-6 pb-4 border-b border-emerald-500/20">
-                                <div className="p-3 bg-emerald-500/20 rounded-xl"><Icon name="award" className="w-6 h-6 text-emerald-400" /></div>
-                                <div>
-                                    <h3 className="font-bold text-emerald-400 text-lg">Mastered Concepts</h3>
-                                    <p className="text-xs text-slate-400">High success ratio ({'>'}80%)</p>
-                                </div>
-                            </div>
-                            <div className="space-y-3">
-                                {agentAnalysis.mastered.map(student => (
-                                    <div key={student.name} className="bg-slate-900 p-4 rounded-xl border border-slate-700 flex justify-between items-center group hover:border-emerald-500/50 transition-colors">
-                                        <span className="font-bold text-slate-200">{student.name}</span>
-                                        <span className="text-xs font-mono bg-emerald-900/40 text-emerald-300 px-2 py-1 rounded border border-emerald-500/30">{student.success}W / {student.failed}L</span>
-                                    </div>
-                                ))}
-                                {agentAnalysis.mastered.length === 0 && <p className="text-sm text-slate-500 italic text-center py-4">No cadets in this tier.</p>}
-                            </div>
-                        </div>
-
-                        {/* Almost There Category */}
-                        <div className="bg-slate-800/50 border border-orange-500/30 rounded-2xl p-6 shadow-xl">
-                            <div className="flex items-center gap-3 mb-6 pb-4 border-b border-orange-500/20">
-                                <div className="p-3 bg-orange-500/20 rounded-xl"><Icon name="target" className="w-6 h-6 text-orange-400" /></div>
-                                <div>
-                                    <h3 className="font-bold text-orange-400 text-lg">Almost There!</h3>
-                                    <p className="text-xs text-slate-400">Medium success ratio (50-80%)</p>
-                                </div>
-                            </div>
-                            <div className="space-y-3">
-                                {agentAnalysis.almost.map(student => (
-                                    <div key={student.name} className="bg-slate-900 p-4 rounded-xl border border-slate-700 flex justify-between items-center group hover:border-orange-500/50 transition-colors">
-                                        <span className="font-bold text-slate-200">{student.name}</span>
-                                        <span className="text-xs font-mono bg-orange-900/40 text-orange-300 px-2 py-1 rounded border border-orange-500/30">{student.success}W / {student.failed}L</span>
-                                    </div>
-                                ))}
-                                {agentAnalysis.almost.length === 0 && <p className="text-sm text-slate-500 italic text-center py-4">No cadets in this tier.</p>}
-                            </div>
-                        </div>
-
-                        {/* Revision Category */}
-                        <div className="bg-slate-800/50 border border-rose-500/30 rounded-2xl p-6 shadow-xl">
-                            <div className="flex items-center gap-3 mb-6 pb-4 border-b border-rose-500/20">
-                                <div className="p-3 bg-rose-500/20 rounded-xl"><Icon name="alert-triangle" className="w-6 h-6 text-rose-400" /></div>
-                                <div>
-                                    <h3 className="font-bold text-rose-400 text-lg">Needs Revision</h3>
-                                    <p className="text-xs text-slate-400">Low success ratio ({'<'}50%)</p>
-                                </div>
-                            </div>
-                            <div className="space-y-3">
-                                {agentAnalysis.revision.map(student => (
-                                    <div key={student.name} className="bg-slate-900 p-4 rounded-xl border border-slate-700 flex justify-between items-center group hover:border-rose-500/50 transition-colors">
-                                        <span className="font-bold text-slate-200">{student.name}</span>
-                                        <span className="text-xs font-mono bg-rose-900/40 text-rose-300 px-2 py-1 rounded border border-rose-500/30">{student.success}W / {student.failed}L</span>
-                                    </div>
-                                ))}
-                                {agentAnalysis.revision.length === 0 && <p className="text-sm text-slate-500 italic text-center py-4">No cadets in this tier.</p>}
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {activeTab === 'raw' && (
-                    <div className="animate-fade-in">
-                        <div className="flex justify-end mb-4">
-                            <button onClick={copyToClipboard} className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg transition-colors border border-slate-600 font-medium text-sm">
-                                {copied ? <Icon name="check-circle" className="w-4 h-4 text-emerald-400" /> : <Icon name="copy" className="w-4 h-4" />}
-                                {copied ? "Copied!" : "Copy Feed"}
-                            </button>
-                        </div>
-                        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {res.map(r => (
-                                <div key={r.id} className="bg-slate-800 p-6 rounded-xl border border-slate-700 shadow-lg relative overflow-hidden group hover:border-cyan-500/50 transition-colors">
-                                    <div className="absolute top-0 left-0 w-1.5 h-full bg-cyan-500"></div>
-                                    <div className="flex justify-between items-start mb-3">
-                                        <strong className="text-xl text-white font-bold">{r.studentName}</strong>
-                                        <span className="text-[10px] font-mono text-slate-400 bg-slate-900 px-2 py-1 rounded border border-slate-700">{new Date(r.timestamp).toLocaleTimeString()}</span>
-                                    </div>
-                                    <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-cyan-900/30 text-cyan-300 text-[10px] font-bold rounded-full mb-4 uppercase tracking-wider border border-cyan-500/20">
-                                        <Icon name="target" className="w-3 h-3" /> {r.phase}
-                                    </span>
-                                    <p className="mt-2 text-slate-300 text-sm border-l-2 border-slate-600 pl-4 leading-relaxed">"{r.text}"</p>
-                                </div>
-                            ))}
-                            {res.length === 0 && (
-                                <div className="col-span-full py-32 text-center text-slate-500 flex flex-col items-center gap-4 bg-slate-800/30 rounded-2xl border border-slate-700/50 border-dashed">
-                                    <Icon name="radio" className="w-12 h-12 text-slate-600 animate-pulse" />
-                                    <p className="text-lg font-medium">Vault active. Waiting for cadet transmissions...</p>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                )}
+                ))}
             </div>
-        </div>
-    );
-}
+        );
+
+        const Module1 = ({ onComplete, onBack, submitResponse }) => (<div className="space-y-4"><p>Module 1: Atmospheric Baseline. Enter 78, 21, 1.</p><button onClick={() => { submitResponse("Mod1", "SUCCESS"); onComplete(); }} className="bg-blue-600 px-4 py-2 rounded">Submit SUCCESS</button><button onClick={onBack}>Back</button></div>);
+        const Module2 = ({ onComplete, onBack, submitResponse }) => (<div className="space-y-4"><p>Module 2: Case File Analysis</p><button onClick={() => { submitResponse("Mod2", "SUCCESS"); onComplete(); }} className="bg-orange-600 px-4 py-2 rounded">Submit SUCCESS</button><button onClick={onBack}>Back</button></div>);
+        const Module3 = ({ onComplete, onBack, submitResponse }) => (<div className="space-y-4"><p>Module 3: Carbon Ledger</p><button onClick={() => { submitResponse("Mod3", "SUCCESS"); onComplete(); }} className="bg-emerald-600 px-4 py-2 rounded">Submit SUCCESS</button><button onClick={onBack}>Back</button></div>);
+        const Module4 = ({ onComplete, onBack, submitResponse }) => (<div className="space-y-4"><p>Module 4: Climate Strategy</p><button onClick={() => { submitResponse("Mod4", "SUCCESS"); onComplete(); }} className="bg-red-600 px-4 py-2 rounded">Submit SUCCESS</button><button onClick={onBack}>Back</button></div>);
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
